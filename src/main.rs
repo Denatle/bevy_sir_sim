@@ -1,3 +1,4 @@
+use std::env;
 use bevy::prelude::*;
 use bevy_prototype_lyon::prelude::*;
 use iyes_perf_ui::prelude::*;
@@ -7,19 +8,23 @@ use crate::types::{Agent, ChunkCoordinates, Simulation};
 
 mod types;
 
-const ENTITY_COUNT: usize = 100000;
 const CANVAS_WIDTH: f32 = 1100.;
 const CANVAS_HEIGHT: f32 = 1100.;
 const CHUNK_SIZE: f32 = 100.;
 
 fn main() {
+    let args: Vec<String> = env::args().collect();
+    let entity_count: usize = args[1]
+        .parse()
+        .expect("Wrong args");
+
     App::new()
         .add_plugins(DefaultPlugins.set(
             WindowPlugin {
                 primary_window: Some(
                     Window {
                         title: "Simulator".into(),
-                        resolution: (1100., 1100.).into(),
+                        resolution: (CANVAS_WIDTH, CANVAS_HEIGHT).into(),
                         ..default()
                     }
                 ),
@@ -28,6 +33,7 @@ fn main() {
         .add_plugins(bevy::diagnostic::FrameTimeDiagnosticsPlugin)
         .add_plugins(PerfUiPlugin)
         .insert_resource(Simulation {
+            entity_count,
             canvas_w: CANVAS_WIDTH,
             canvas_h: CANVAS_HEIGHT,
             chunk_size: CHUNK_SIZE,
@@ -74,7 +80,7 @@ fn setup_debug(
     squares: Query<(&mut Agent, &mut Transform)>,
     asset_server: Res<AssetServer>,
 ) {
-    spawn_debug_entity(&mut commands, asset_server, &mut simul);
+    spawn_debug_entities(&mut commands, asset_server, &mut simul);
     squares.iter().for_each(|(_person, transform)| {
         let coords = simul.get_chunk_coords(transform.translation.x, transform.translation.y);
         simul.chunks[coords.x][coords.y].iter().for_each(|entity| {
@@ -118,6 +124,8 @@ fn color_squares(
             agent.coords
         }).unwrap();
 
+    // Todo: iterate only chunk entities
+
     // let entities = simul.get_chunk_entities(main_coords);
 
     for (_entity, agent, mut sprite) in squares.iter_mut() {
@@ -133,9 +141,9 @@ fn color_squares(
     };
 }
 
-fn spawn_debug_entity(commands: &mut Commands, asset_server: Res<AssetServer>, simul: &mut ResMut<Simulation>) {
+fn spawn_debug_entities(commands: &mut Commands, asset_server: Res<AssetServer>, simul: &mut ResMut<Simulation>) {
     let coords = simul.get_chunk_coords(-300., -300.);
-    for i in 0..ENTITY_COUNT {
+    for i in 0..simul.entity_count {
         // let color = Color::hsl(360. * i as f32 / ENTITY_COUNT as f32, 0.95, 0.5);
         let entity = commands.spawn((
             SpriteBundle {
@@ -151,7 +159,7 @@ fn spawn_debug_entity(commands: &mut Commands, asset_server: Res<AssetServer>, s
             },
             Agent {
                 coords,
-                is_main: i == ENTITY_COUNT - 1,
+                is_main: i == simul.entity_count - 1,
             }
         )).id();
         simul.add_entity(coords, entity);

@@ -2,6 +2,7 @@ use bevy::prelude::{Component, Entity, Resource};
 
 #[derive(Resource, Default)]
 pub struct Simulation {
+    pub entity_count: usize,
     pub canvas_w: f32,
     pub canvas_h: f32,
     pub chunk_size: f32,
