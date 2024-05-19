@@ -1,5 +1,7 @@
 use std::env;
 use bevy::prelude::*;
+use bevy::window::WindowMode;
+use bevy_pancam::{PanCam, PanCamPlugin};
 use bevy_prototype_lyon::prelude::*;
 use iyes_perf_ui::prelude::*;
 use rand::prelude::*;
@@ -8,8 +10,8 @@ use crate::types::{Agent, ChunkCoordinates, Simulation};
 
 mod types;
 
-const CANVAS_WIDTH: f32 = 1100.;
-const CANVAS_HEIGHT: f32 = 1100.;
+const CANVAS_WIDTH: f32 = 1440.;
+const CANVAS_HEIGHT: f32 = 1440.;
 const CHUNK_SIZE: f32 = 100.;
 
 fn main() {
@@ -23,6 +25,7 @@ fn main() {
             WindowPlugin {
                 primary_window: Some(
                     Window {
+                        mode: WindowMode::Fullscreen,
                         title: "Simulator".into(),
                         resolution: (CANVAS_WIDTH, CANVAS_HEIGHT).into(),
                         ..default()
@@ -32,6 +35,7 @@ fn main() {
             }))
         .add_plugins(bevy::diagnostic::FrameTimeDiagnosticsPlugin)
         .add_plugins(PerfUiPlugin)
+        .add_plugins(PanCamPlugin)
         .insert_resource(Simulation {
             entity_count,
             canvas_w: CANVAS_WIDTH,
@@ -47,7 +51,15 @@ fn main() {
 }
 
 fn setup(mut commands: Commands) {
-    commands.spawn(Camera2dBundle::default());
+    commands.spawn(Camera2dBundle::default()).insert(
+        PanCam {
+            grab_buttons: vec![MouseButton::Middle], // which buttons should drag the camera
+            enabled: true, // when false, controls are disabled. See toggle example.
+            zoom_to_cursor: true, // whether to zoom towards the mouse or the center of the screen
+            min_scale: 1., // prevent the camera from zooming too far in
+            max_scale: Some(40.), // prevent the camera from zooming too far out
+            ..default()
+        });
     commands.spawn((
         PerfUiRoot {
             display_labels: false,
@@ -93,17 +105,36 @@ fn move_squares(
     mut simul: ResMut<Simulation>,
     time: Res<Time>,
     mut squares: Query<(Entity, &mut Agent, &mut Sprite, &mut Transform)>,
+    q_window: Query<&Window>,
+    // query to get camera transform
+    q_camera: Query<(&Camera, &GlobalTransform)>,
 ) {
     for (entity, mut agent, _sprite, mut transform) in squares.iter_mut() {
-        let mut rng = thread_rng();
-        let x: f32 = rng.gen();
-        let y: f32 = rng.gen();
         // println!("{}", x);
-        transform.translation.x += (x - 0.5) * time.delta().as_millis() as f32;
-        transform.translation.y += (y - 0.5) * time.delta().as_millis() as f32;
+        if agent.is_main {
+            let (camera, camera_transform) = q_camera.single();
 
-        transform.translation.x = transform.translation.x.clamp(0. - CANVAS_WIDTH / 2., CANVAS_WIDTH / 2.);
-        transform.translation.y = transform.translation.y.clamp(0. - CANVAS_HEIGHT / 2., CANVAS_HEIGHT / 2.);
+            let window = q_window.single();
+            let mut coords: Vec2 = Default::default();
+            
+            if let Some(world_position) = window.cursor_position()
+                .and_then(|cursor| camera.viewport_to_world(camera_transform, cursor))
+                .map(|ray| ray.origin.truncate())
+            {
+                coords = world_position;
+            }
+            
+            transform.translation.x = coords.x;
+            transform.translation.y = coords.y;
+        } else {
+            let mut rng = thread_rng();
+            let x: f32 = rng.gen();
+            let y: f32 = rng.gen();
+            transform.translation.x += (x - 0.5) * time.delta().as_millis() as f32;
+            transform.translation.y += (y - 0.5) * time.delta().as_millis() as f32;
+            transform.translation.x = transform.translation.x.clamp(0. - CANVAS_WIDTH / 2., CANVAS_WIDTH / 2.);
+            transform.translation.y = transform.translation.y.clamp(0. - CANVAS_HEIGHT / 2., CANVAS_HEIGHT / 2.);
+        }
 
         let coords = simul.get_chunk_coords(transform.translation.x, transform.translation.y);
         // println!("{n_x}, {n_y}");
