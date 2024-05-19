@@ -1,18 +1,16 @@
 use bevy::prelude::*;
-use bevy::sprite::{MaterialMesh2dBundle, Mesh2dHandle};
 use bevy_prototype_lyon::prelude::*;
+use iyes_perf_ui::prelude::*;
 use rand::prelude::*;
 
-use crate::types::{Person, Simulation};
+use crate::types::{Agent, ChunkCoordinates, Simulation};
 
 mod types;
 
-const ENTITY_COUNT: usize = 1500;
+const ENTITY_COUNT: usize = 100000;
 const CANVAS_WIDTH: f32 = 1100.;
 const CANVAS_HEIGHT: f32 = 1100.;
 const CHUNK_SIZE: f32 = 100.;
-
-// TODO: !!! SET ENTITIES TO THE VECTOR ON SECTOR CHANGE !!!
 
 fn main() {
     App::new()
@@ -27,32 +25,43 @@ fn main() {
                 ),
                 ..default()
             }))
+        .add_plugins(bevy::diagnostic::FrameTimeDiagnosticsPlugin)
+        .add_plugins(PerfUiPlugin)
         .insert_resource(Simulation {
             canvas_w: CANVAS_WIDTH,
             canvas_h: CANVAS_HEIGHT,
             chunk_size: CHUNK_SIZE,
             ..default()
         })
-        .insert_resource(ClearColor(Color::rgb(1., 1., 1.)))
+        .insert_resource(ClearColor(Color::rgb(0., 0., 0.)))
         .add_plugins(ShapePlugin)
-        .add_systems(Startup, (setup_grid, (setup_camera, setup_debug)).chain())
-        .add_systems(Update, move_squares)
+        .add_systems(Startup, (setup, setup_grid, setup_debug).chain())
+        .add_systems(Update, (move_squares, color_squares))
         .run();
 }
 
-fn setup_camera(mut commands: Commands) {
+fn setup(mut commands: Commands) {
     commands.spawn(Camera2dBundle::default());
+    commands.spawn((
+        PerfUiRoot {
+            display_labels: false,
+            layout_horizontal: true,
+            ..default()
+        },
+        PerfUiEntryFPSWorst::default(),
+        PerfUiEntryFPS::default(),
+    ));
 }
 
 fn setup_grid(
     mut commands: Commands,
     mut simul: ResMut<Simulation>,
 ) {
-    let (x_lim, y_lim) = simul.get_chunk_limits();
-    for y in 0..y_lim {
+    let limits = simul.get_chunk_limits();
+    for y in 0..limits.y {
         simul.chunks.push(vec![]);
-        for x in 0..x_lim {
-            let (r_x, r_y) = simul.get_global_coords(x, y);
+        for x in 0..limits.x {
+            let (r_x, r_y) = simul.get_global_coords(ChunkCoordinates::new(x, y));
             spawn_debug_square(&mut commands, r_x, r_y, simul.chunk_size);
             simul.chunks[y].push(vec![])
         }
@@ -62,25 +71,24 @@ fn setup_grid(
 fn setup_debug(
     mut commands: Commands,
     mut simul: ResMut<Simulation>,
-    squares: Query<(&mut Person, &mut Transform)>,
-    meshes: ResMut<Assets<Mesh>>,
-    materials: ResMut<Assets<ColorMaterial>>,
+    squares: Query<(&mut Agent, &mut Transform)>,
+    asset_server: Res<AssetServer>,
 ) {
-    spawn_debug_entity(&mut commands, meshes, materials, &mut simul);
+    spawn_debug_entity(&mut commands, asset_server, &mut simul);
     squares.iter().for_each(|(_person, transform)| {
-        let (n_x, n_y) = simul.get_chunk_coords(transform.translation.x, transform.translation.y);
-        simul.chunks[n_x][n_y].iter().for_each(|entity| {
-            println!("{:?}: {n_x}, {n_y}", entity)
+        let coords = simul.get_chunk_coords(transform.translation.x, transform.translation.y);
+        simul.chunks[coords.x][coords.y].iter().for_each(|entity| {
+            println!("{:?}: {}, {}", entity, coords.x, coords.y)
         });
     });
 }
 
 fn move_squares(
-    // simul: ResMut<Simulation>,
+    mut simul: ResMut<Simulation>,
     time: Res<Time>,
-    mut squares: Query<(&mut Person, &mut Transform)>,
+    mut squares: Query<(Entity, &mut Agent, &mut Sprite, &mut Transform)>,
 ) {
-    squares.iter_mut().for_each(|(_person, mut transform)| {
+    for (entity, mut agent, _sprite, mut transform) in squares.iter_mut() {
         let mut rng = thread_rng();
         let x: f32 = rng.gen();
         let y: f32 = rng.gen();
@@ -91,29 +99,62 @@ fn move_squares(
         transform.translation.x = transform.translation.x.clamp(0. - CANVAS_WIDTH / 2., CANVAS_WIDTH / 2.);
         transform.translation.y = transform.translation.y.clamp(0. - CANVAS_HEIGHT / 2., CANVAS_HEIGHT / 2.);
 
-        // let (n_x, n_y) = simul.get_chunk_coords(transform.translation.x, transform.translation.y);
+        let coords = simul.get_chunk_coords(transform.translation.x, transform.translation.y);
         // println!("{n_x}, {n_y}");
-    });
+        if coords != agent.coords {
+            simul.change_entity_sector(entity, agent.coords, coords);
+        }
+        agent.coords = coords;
+    };
 }
 
-fn spawn_debug_entity(commands: &mut Commands, mut meshes: ResMut<Assets<Mesh>>, mut materials: ResMut<Assets<ColorMaterial>>, simul: &mut ResMut<Simulation>) {
+fn color_squares(
+    // mut simul: ResMut<Simulation>,
+    mut squares: Query<(Entity, &mut Agent, &mut Sprite)>,
+) {
+    let main_coords = squares.iter()
+        .find(|(_entity, agent, _sprite)| { agent.is_main })
+        .map(|(_entity, agent, _sprite)| {
+            agent.coords
+        }).unwrap();
+
+    // let entities = simul.get_chunk_entities(main_coords);
+
+    for (_entity, agent, mut sprite) in squares.iter_mut() {
+        if agent.coords != main_coords {
+            sprite.color = Color::rgb(0., 0., 1.);
+            continue;
+        }
+        if agent.is_main {
+            sprite.color = Color::rgb(1., 1., 0.);
+        } else {
+            sprite.color = Color::rgb(1., 0., 1.);
+        }
+    };
+}
+
+fn spawn_debug_entity(commands: &mut Commands, asset_server: Res<AssetServer>, simul: &mut ResMut<Simulation>) {
+    let coords = simul.get_chunk_coords(-300., -300.);
     for i in 0..ENTITY_COUNT {
-        let color = Color::hsl(360. * i as f32 / ENTITY_COUNT as f32, 0.95, 0.5);
+        // let color = Color::hsl(360. * i as f32 / ENTITY_COUNT as f32, 0.95, 0.5);
         let entity = commands.spawn((
-            MaterialMesh2dBundle {
-                mesh: Mesh2dHandle(meshes.add(Rectangle::new(7., 7.))),
-                material: materials.add(color),
-                transform: Transform::from_xyz(
-                    0.,
-                    0.,
-                    0.,
-                ),
+            SpriteBundle {
+                texture: asset_server.load("sprite.png"),
+                transform: Transform {
+                    translation: Vec3 {
+                        z: 10.,
+                        ..default()
+                    },
+                    ..default()
+                },
                 ..default()
             },
-            Person
+            Agent {
+                coords,
+                is_main: i == ENTITY_COUNT - 1,
+            }
         )).id();
-        let (n_x, n_y) = simul.get_chunk_coords(-300., -300.);
-        simul.add_entity(n_x, n_y, entity);
+        simul.add_entity(coords, entity);
     }
 }
 
