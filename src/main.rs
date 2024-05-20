@@ -6,6 +6,7 @@ use bevy_pancam::{PanCam, PanCamPlugin};
 use bevy_prototype_lyon::prelude::*;
 use iyes_perf_ui::prelude::*;
 use rand::prelude::*;
+use rand::seq::SliceRandom;
 
 use crate::types::{Agent, AgentType, ChunkCoordinates, CursorAgent, Simulation};
 
@@ -158,10 +159,24 @@ fn change_destination(
         }
         agent.type_ = AgentType::FarMain;
         if agent.destination.round() == transform.translation.round() {
-            let x: f32 = (random::<f32>() - 0.5) * (simul.canvas_w / 2.);
-            let y: f32 = (random::<f32>() - 0.5) * (simul.canvas_h / 2.);
-            let destination = Vec3::new(x, y, 0.);
-            agent.destination = destination
+            let x_dev = agent.coords.x as f32 +
+                ((random::<f32>() - 0.5) * 2.).round_ties_even();
+            let y_dev = agent.coords.y as f32 +
+                ((random::<f32>() - 0.5) * 2.).round_ties_even();
+
+            let n_chunk = ChunkCoordinates::new(x_dev as usize, y_dev as usize);
+
+            let (n_x, n_y) = simul.get_global_coords(n_chunk);
+
+            let r_x = ((random::<f32>() - 0.5) * simul.chunk_size + n_x)
+                .clamp(0. - simul.canvas_w / 3., simul.canvas_w / 3.);
+            let r_y = ((random::<f32>() - 0.5) * simul.chunk_size + n_y)
+                .clamp(0. - simul.canvas_w / 3., simul.canvas_w / 3.);
+
+            println!("{}", x_dev - agent.coords.x as f32);
+            // println!("{}, {}", x_dev, y_dev);
+            let destination = Vec3::new(r_x, r_y, 0.);
+            agent.destination = destination;
         }
     }
 }

@@ -71,7 +71,7 @@ pub enum AgentType {
     FarMain,
 }
 
-#[derive(PartialOrd, PartialEq, Copy, Clone)]
+#[derive(PartialOrd, PartialEq, Copy, Clone, Debug)]
 pub struct ChunkCoordinates {
     pub x: usize,
     pub y: usize,
