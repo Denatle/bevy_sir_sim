@@ -1,4 +1,5 @@
 use std::env;
+
 use bevy::prelude::*;
 use bevy::window::WindowMode;
 use bevy_pancam::{PanCam, PanCamPlugin};
@@ -6,12 +7,12 @@ use bevy_prototype_lyon::prelude::*;
 use iyes_perf_ui::prelude::*;
 use rand::prelude::*;
 
-use crate::types::{Agent, ChunkCoordinates, Simulation};
+use crate::types::{Agent, AgentType, ChunkCoordinates, CursorAgent, Simulation};
 
 mod types;
 
-const CANVAS_WIDTH: f32 = 1440.;
-const CANVAS_HEIGHT: f32 = 1440.;
+const CANVAS_WIDTH: f32 = 1500.;
+const CANVAS_HEIGHT: f32 = 1500.;
 const CHUNK_SIZE: f32 = 100.;
 
 fn main() {
@@ -46,7 +47,7 @@ fn main() {
         .insert_resource(ClearColor(Color::rgb(0., 0., 0.)))
         .add_plugins(ShapePlugin)
         .add_systems(Startup, (setup, setup_grid, setup_debug).chain())
-        .add_systems(Update, (move_squares, color_squares))
+        .add_systems(Update, (move_cursor, change_destination, move_agents, (chunk_agents, color_agents).chain()))
         .run();
 }
 
@@ -56,8 +57,8 @@ fn setup(mut commands: Commands) {
             grab_buttons: vec![MouseButton::Middle], // which buttons should drag the camera
             enabled: true, // when false, controls are disabled. See toggle example.
             zoom_to_cursor: true, // whether to zoom towards the mouse or the center of the screen
-            min_scale: 1., // prevent the camera from zooming too far in
-            max_scale: Some(40.), // prevent the camera from zooming too far out
+            min_scale: 0.3, // prevent the camera from zooming too far in
+            max_scale: Some(4.5), // prevent the camera from zooming too far out
             ..default()
         });
     commands.spawn((
@@ -89,55 +90,38 @@ fn setup_grid(
 fn setup_debug(
     mut commands: Commands,
     mut simul: ResMut<Simulation>,
-    squares: Query<(&mut Agent, &mut Transform)>,
     asset_server: Res<AssetServer>,
 ) {
-    spawn_debug_entities(&mut commands, asset_server, &mut simul);
-    squares.iter().for_each(|(_person, transform)| {
-        let coords = simul.get_chunk_coords(transform.translation.x, transform.translation.y);
-        simul.chunks[coords.x][coords.y].iter().for_each(|entity| {
-            println!("{:?}: {}, {}", entity, coords.x, coords.y)
-        });
-    });
+    spawn_agents(&mut commands, &asset_server, &mut simul);
+    spawn_cursor(&mut commands, &asset_server, &mut simul);
 }
 
-fn move_squares(
+fn move_cursor(
     mut simul: ResMut<Simulation>,
-    time: Res<Time>,
-    mut squares: Query<(Entity, &mut Agent, &mut Sprite, &mut Transform)>,
+    mut squares: Query<(Entity, &mut Agent, &mut Transform)>,
     q_window: Query<&Window>,
-    // query to get camera transform
     q_camera: Query<(&Camera, &GlobalTransform)>,
 ) {
-    for (entity, mut agent, _sprite, mut transform) in squares.iter_mut() {
-        // println!("{}", x);
-        if agent.is_main {
-            let (camera, camera_transform) = q_camera.single();
+    for (entity, mut agent, mut transform) in squares.iter_mut() {
+        if agent.type_ != AgentType::Main {
+            continue;
+        }
+        let (camera, camera_transform) = q_camera.single();
 
-            let window = q_window.single();
-            let mut coords: Vec2 = Default::default();
-            
-            if let Some(world_position) = window.cursor_position()
-                .and_then(|cursor| camera.viewport_to_world(camera_transform, cursor))
-                .map(|ray| ray.origin.truncate())
-            {
-                coords = world_position;
-            }
-            
-            transform.translation.x = coords.x;
-            transform.translation.y = coords.y;
-        } else {
-            let mut rng = thread_rng();
-            let x: f32 = rng.gen();
-            let y: f32 = rng.gen();
-            transform.translation.x += (x - 0.5) * time.delta().as_millis() as f32;
-            transform.translation.y += (y - 0.5) * time.delta().as_millis() as f32;
-            transform.translation.x = transform.translation.x.clamp(0. - CANVAS_WIDTH / 2., CANVAS_WIDTH / 2.);
-            transform.translation.y = transform.translation.y.clamp(0. - CANVAS_HEIGHT / 2., CANVAS_HEIGHT / 2.);
+        let window = q_window.single();
+        let mut coords: Vec2 = Vec2::new(-500., -500.);
+
+        if let Some(world_position) = window.cursor_position()
+            .and_then(|cursor| camera.viewport_to_world(camera_transform, cursor))
+            .map(|ray| ray.origin.truncate())
+        {
+            coords = world_position;
         }
 
+        transform.translation.x = coords.x.clamp(0. - simul.canvas_w / 2., simul.canvas_w / 2.);
+        transform.translation.y = coords.y.clamp(0. - simul.canvas_h / 2., simul.canvas_h / 2.);
+
         let coords = simul.get_chunk_coords(transform.translation.x, transform.translation.y);
-        // println!("{n_x}, {n_y}");
         if coords != agent.coords {
             simul.change_entity_sector(entity, agent.coords, coords);
         }
@@ -145,37 +129,114 @@ fn move_squares(
     };
 }
 
-fn color_squares(
-    // mut simul: ResMut<Simulation>,
-    mut squares: Query<(Entity, &mut Agent, &mut Sprite)>,
+fn move_agents(
+    mut simul: ResMut<Simulation>,
+    time: Res<Time>,
+    mut squares: Query<(Entity, &mut Agent, &mut Transform)>,
 ) {
-    let main_coords = squares.iter()
-        .find(|(_entity, agent, _sprite)| { agent.is_main })
-        .map(|(_entity, agent, _sprite)| {
-            agent.coords
-        }).unwrap();
-
-    // Todo: iterate only chunk entities
-
-    // let entities = simul.get_chunk_entities(main_coords);
-
-    for (_entity, agent, mut sprite) in squares.iter_mut() {
-        if agent.coords != main_coords {
-            sprite.color = Color::rgb(0., 0., 1.);
+    for (entity, mut agent, mut transform) in squares.iter_mut() {
+        if agent.type_ == AgentType::Main {
             continue;
         }
-        if agent.is_main {
-            sprite.color = Color::rgb(1., 1., 0.);
-        } else {
-            sprite.color = Color::rgb(1., 0., 1.);
+        let old_translation = transform.translation;
+        transform.translation += (agent.destination - old_translation) * agent.speed * time.delta().as_secs_f32();
+        let coords = simul.get_chunk_coords(transform.translation.x, transform.translation.y);
+        if coords != agent.coords {
+            simul.change_entity_sector(entity, agent.coords, coords);
         }
+        agent.coords = coords;
     };
 }
 
-fn spawn_debug_entities(commands: &mut Commands, asset_server: Res<AssetServer>, simul: &mut ResMut<Simulation>) {
-    let coords = simul.get_chunk_coords(-300., -300.);
-    for i in 0..simul.entity_count {
-        // let color = Color::hsl(360. * i as f32 / ENTITY_COUNT as f32, 0.95, 0.5);
+fn change_destination(
+    simul: ResMut<Simulation>,
+    mut agent_query: Query<(&mut Agent, &Transform), Without<CursorAgent>>,
+) {
+    for (mut agent, transform) in agent_query.iter_mut() {
+        if agent.type_ != AgentType::FarMain {
+            continue;
+        }
+        agent.type_ = AgentType::FarMain;
+        if agent.destination.round() == transform.translation.round() {
+            let x: f32 = (random::<f32>() - 0.5) * (simul.canvas_w / 2.);
+            let y: f32 = (random::<f32>() - 0.5) * (simul.canvas_h / 2.);
+            let destination = Vec3::new(x, y, 0.);
+            agent.destination = destination
+        }
+    }
+}
+
+fn chunk_agents(
+    simul: ResMut<Simulation>,
+    mut agent_query: Query<&mut Agent, Without<CursorAgent>>,
+    cursor_agent: Query<(Entity, &Agent, &Transform), With<CursorAgent>>,
+) {
+    let (cursor_entity, cursor, cursor_transform) = cursor_agent.single();
+
+    for mut agent in agent_query.iter_mut() {
+        if agent.coords != cursor.coords {
+            agent.type_ = AgentType::FarMain;
+        }
+    }
+
+    let chunk_entities = simul.get_chunk_entities(cursor.coords);
+    for entity in chunk_entities {
+        if cursor_entity == entity {
+            continue;
+        }
+        let mut agent = agent_query
+            .get_mut(entity).unwrap();
+        agent.type_ = AgentType::NearMain;
+        agent.destination = cursor_transform.translation
+    }
+}
+
+fn color_agents(mut squares: Query<(&mut Sprite, &mut Agent)>) {
+    for (mut sprite, agent) in squares.iter_mut() {
+        match agent.type_ {
+            AgentType::Main => { sprite.color = Color::rgb(1., 1., 0.); }
+            AgentType::FarMain => { sprite.color = Color::rgb(0., 0., 1.); }
+            AgentType::NearMain => { sprite.color = Color::rgb(1., 0., 1.); }
+        }
+    }
+}
+
+fn spawn_cursor(
+    commands: &mut Commands,
+    asset_server: &Res<AssetServer>,
+    simul: &mut ResMut<Simulation>,
+) {
+    let coords = simul.get_chunk_coords(0., 0.);
+    let entity = commands.spawn((
+        SpriteBundle {
+            texture: asset_server.load("sprite.png"),
+            transform: Transform {
+                translation: Vec3 {
+                    z: 10.,
+                    ..default()
+                },
+                ..default()
+            },
+            ..default()
+        },
+        Agent {
+            coords,
+            type_: AgentType::Main,
+            speed: 0.,
+            is_travelling: false,
+            destination: Vec3::new(0., 0., 0.),
+        },
+        CursorAgent
+    )).id();
+    simul.add_entity(coords, entity);
+}
+
+fn spawn_agents(commands: &mut Commands, asset_server: &Res<AssetServer>, simul: &mut ResMut<Simulation>) {
+    let coords = simul.get_chunk_coords(0., 0.);
+    for _ in 0..simul.entity_count {
+        let x: f32 = (random::<f32>() - 0.5) * (simul.canvas_w / 2.);
+        let y: f32 = (random::<f32>() - 0.5) * (simul.canvas_h / 2.);
+        let destination = Vec3::new(x, y, 0.);
         let entity = commands.spawn((
             SpriteBundle {
                 texture: asset_server.load("sprite.png"),
@@ -190,8 +251,11 @@ fn spawn_debug_entities(commands: &mut Commands, asset_server: Res<AssetServer>,
             },
             Agent {
                 coords,
-                is_main: i == simul.entity_count - 1,
-            }
+                type_: AgentType::FarMain,
+                speed: 3.,
+                is_travelling: true,
+                destination,
+            },
         )).id();
         simul.add_entity(coords, entity);
     }

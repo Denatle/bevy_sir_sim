@@ -1,4 +1,4 @@
-use bevy::prelude::{Component, Entity, Resource};
+use bevy::prelude::{Component, Entity, Resource, Vec3};
 
 #[derive(Resource, Default)]
 pub struct Simulation {
@@ -54,8 +54,21 @@ impl Simulation {
 
 #[derive(Component)]
 pub struct Agent {
-    pub is_main: bool,
-    pub(crate) coords: ChunkCoordinates,
+    pub type_: AgentType,
+    pub speed: f32,
+    pub destination: Vec3,
+    pub is_travelling: bool,
+    pub coords: ChunkCoordinates,
+}
+
+#[derive(Component)]
+pub struct CursorAgent;
+
+#[derive(PartialEq)]
+pub enum AgentType {
+    Main,
+    NearMain,
+    FarMain,
 }
 
 #[derive(PartialOrd, PartialEq, Copy, Clone)]
