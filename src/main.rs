@@ -6,15 +6,18 @@ use bevy_pancam::{PanCam, PanCamPlugin};
 use bevy_prototype_lyon::prelude::*;
 use iyes_perf_ui::prelude::*;
 use rand::prelude::*;
-use rand::seq::SliceRandom;
+use crate::plugin::{Chunkable, ChunkableBundle, ChunkCoordinates, Chunking, Simulation};
 
-use crate::types::{Agent, AgentType, ChunkCoordinates, CursorAgent, Simulation};
+use crate::types::{Agent, AgentType, CursorAgent};
 
 mod types;
+mod plugin;
 
 const CANVAS_WIDTH: f32 = 1500.;
 const CANVAS_HEIGHT: f32 = 1500.;
 const CHUNK_SIZE: f32 = 100.;
+
+// TODO: MOVE SIMULATION MODULE TO DIFFERENT LIBRARY
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -35,20 +38,20 @@ fn main() {
                 ),
                 ..default()
             }))
-        .add_plugins(bevy::diagnostic::FrameTimeDiagnosticsPlugin)
-        .add_plugins(PerfUiPlugin)
-        .add_plugins(PanCamPlugin)
-        .insert_resource(Simulation {
+        .add_plugins(Chunking {
             entity_count,
             canvas_w: CANVAS_WIDTH,
             canvas_h: CANVAS_HEIGHT,
             chunk_size: CHUNK_SIZE,
-            ..default()
         })
+        .add_plugins(bevy::diagnostic::FrameTimeDiagnosticsPlugin)
+        .add_plugins(PerfUiPlugin)
+        .add_plugins(PanCamPlugin)
+
         .insert_resource(ClearColor(Color::rgb(0., 0., 0.)))
         .add_plugins(ShapePlugin)
-        .add_systems(Startup, (setup, setup_grid, setup_debug).chain())
-        .add_systems(Update, (move_cursor, change_destination, move_agents, (chunk_agents, color_agents).chain()))
+        .add_systems(Startup, (setup, setup_debug).chain())
+        .add_systems(Update, (move_cursor, change_destination, move_agents, (type_agents, color_agents).chain()))
         .run();
 }
 
@@ -73,37 +76,29 @@ fn setup(mut commands: Commands) {
     ));
 }
 
-fn setup_grid(
-    mut commands: Commands,
-    mut simul: ResMut<Simulation>,
-) {
-    let limits = simul.get_chunk_limits();
-    for y in 0..limits.y {
-        simul.chunks.push(vec![]);
-        for x in 0..limits.x {
-            let (r_x, r_y) = simul.get_global_coords(ChunkCoordinates::new(x, y));
-            spawn_debug_square(&mut commands, r_x, r_y, simul.chunk_size);
-            simul.chunks[y].push(vec![])
-        }
-    }
-}
-
 fn setup_debug(
     mut commands: Commands,
     mut simul: ResMut<Simulation>,
     asset_server: Res<AssetServer>,
 ) {
+    let limits = simul.get_chunk_limits();
+    for y in 0..limits.y {
+        for x in 0..limits.x {
+            let (r_x, r_y) = simul.get_global_coords(ChunkCoordinates::new(x, y));
+            spawn_debug_square(&mut commands, r_x, r_y, simul.chunk_size);
+        }
+    }
     spawn_agents(&mut commands, &asset_server, &mut simul);
     spawn_cursor(&mut commands, &asset_server, &mut simul);
 }
 
 fn move_cursor(
-    mut simul: ResMut<Simulation>,
-    mut squares: Query<(Entity, &mut Agent, &mut Transform)>,
+    simul: ResMut<Simulation>,
+    mut squares: Query<(&mut Agent, &mut Transform)>,
     q_window: Query<&Window>,
     q_camera: Query<(&Camera, &GlobalTransform)>,
 ) {
-    for (entity, mut agent, mut transform) in squares.iter_mut() {
+    for (agent, mut transform) in squares.iter_mut() {
         if agent.type_ != AgentType::Main {
             continue;
         }
@@ -121,47 +116,35 @@ fn move_cursor(
 
         transform.translation.x = coords.x.clamp(0. - simul.canvas_w / 2., simul.canvas_w / 2.);
         transform.translation.y = coords.y.clamp(0. - simul.canvas_h / 2., simul.canvas_h / 2.);
-
-        let coords = simul.get_chunk_coords(transform.translation.x, transform.translation.y);
-        if coords != agent.coords {
-            simul.change_entity_sector(entity, agent.coords, coords);
-        }
-        agent.coords = coords;
     };
 }
 
 fn move_agents(
-    mut simul: ResMut<Simulation>,
     time: Res<Time>,
-    mut squares: Query<(Entity, &mut Agent, &mut Transform)>,
+    mut squares: Query<(&mut Agent, &mut Transform)>,
 ) {
-    for (entity, mut agent, mut transform) in squares.iter_mut() {
+    for (agent, mut transform) in squares.iter_mut() {
         if agent.type_ == AgentType::Main {
             continue;
         }
         let old_translation = transform.translation;
         transform.translation += (agent.destination - old_translation) * agent.speed * time.delta().as_secs_f32();
-        let coords = simul.get_chunk_coords(transform.translation.x, transform.translation.y);
-        if coords != agent.coords {
-            simul.change_entity_sector(entity, agent.coords, coords);
-        }
-        agent.coords = coords;
     };
 }
 
 fn change_destination(
     simul: ResMut<Simulation>,
-    mut agent_query: Query<(&mut Agent, &Transform), Without<CursorAgent>>,
+    mut agent_query: Query<(&mut Agent, &Chunkable, &Transform), Without<CursorAgent>>,
 ) {
-    for (mut agent, transform) in agent_query.iter_mut() {
+    for (mut agent, chunkable, transform) in agent_query.iter_mut() {
         if agent.type_ != AgentType::FarMain {
             continue;
         }
         agent.type_ = AgentType::FarMain;
         if agent.destination.round() == transform.translation.round() {
-            let x_dev = agent.coords.x as f32 +
+            let x_dev = chunkable.coords.x as f32 +
                 ((random::<f32>() - 0.5) * 2.).round_ties_even();
-            let y_dev = agent.coords.y as f32 +
+            let y_dev = chunkable.coords.y as f32 +
                 ((random::<f32>() - 0.5) * 2.).round_ties_even();
 
             let n_chunk = ChunkCoordinates::new(x_dev as usize, y_dev as usize);
@@ -169,11 +152,10 @@ fn change_destination(
             let (n_x, n_y) = simul.get_global_coords(n_chunk);
 
             let r_x = ((random::<f32>() - 0.5) * simul.chunk_size + n_x)
-                .clamp(0. - simul.canvas_w / 3., simul.canvas_w / 3.);
+                .clamp(0. - simul.canvas_w / 2.31, simul.canvas_w / 2.31);
             let r_y = ((random::<f32>() - 0.5) * simul.chunk_size + n_y)
-                .clamp(0. - simul.canvas_w / 3., simul.canvas_w / 3.);
+                .clamp(0. - simul.canvas_w / 2.31, simul.canvas_w / 2.31);
 
-            println!("{}", x_dev - agent.coords.x as f32);
             // println!("{}, {}", x_dev, y_dev);
             let destination = Vec3::new(r_x, r_y, 0.);
             agent.destination = destination;
@@ -181,25 +163,25 @@ fn change_destination(
     }
 }
 
-fn chunk_agents(
+fn type_agents(
     simul: ResMut<Simulation>,
-    mut agent_query: Query<&mut Agent, Without<CursorAgent>>,
-    cursor_agent: Query<(Entity, &Agent, &Transform), With<CursorAgent>>,
+    mut agent_query: Query<(&mut Agent, &mut Chunkable), Without<CursorAgent>>,
+    cursor_agent: Query<(Entity, &Chunkable, &Transform), With<CursorAgent>>,
 ) {
-    let (cursor_entity, cursor, cursor_transform) = cursor_agent.single();
+    let (cursor_entity, cursor_chunkable, cursor_transform) = cursor_agent.single();
 
-    for mut agent in agent_query.iter_mut() {
-        if agent.coords != cursor.coords {
+    for (mut agent, chunkable) in agent_query.iter_mut() {
+        if chunkable.coords != cursor_chunkable.coords {
             agent.type_ = AgentType::FarMain;
         }
     }
 
-    let chunk_entities = simul.get_chunk_entities(cursor.coords);
+    let chunk_entities = simul.get_chunk_entities(cursor_chunkable.coords);
     for entity in chunk_entities {
         if cursor_entity == entity {
             continue;
         }
-        let mut agent = agent_query
+        let (mut agent, _chunkable) = agent_query
             .get_mut(entity).unwrap();
         agent.type_ = AgentType::NearMain;
         agent.destination = cursor_transform.translation
@@ -221,8 +203,13 @@ fn spawn_cursor(
     asset_server: &Res<AssetServer>,
     simul: &mut ResMut<Simulation>,
 ) {
-    let coords = simul.get_chunk_coords(0., 0.);
+    let coords = simul.get_chunk_coords(-500., -500.);
     let entity = commands.spawn((
+        ChunkableBundle {
+            chunkable: Chunkable {
+                coords
+            },
+        },
         SpriteBundle {
             texture: asset_server.load("sprite.png"),
             transform: Transform {
@@ -235,7 +222,6 @@ fn spawn_cursor(
             ..default()
         },
         Agent {
-            coords,
             type_: AgentType::Main,
             speed: 0.,
             is_travelling: false,
@@ -253,6 +239,11 @@ fn spawn_agents(commands: &mut Commands, asset_server: &Res<AssetServer>, simul:
         let y: f32 = (random::<f32>() - 0.5) * (simul.canvas_h / 2.);
         let destination = Vec3::new(x, y, 0.);
         let entity = commands.spawn((
+            ChunkableBundle {
+                chunkable: Chunkable {
+                    coords
+                },
+            },
             SpriteBundle {
                 texture: asset_server.load("sprite.png"),
                 transform: Transform {
@@ -265,7 +256,6 @@ fn spawn_agents(commands: &mut Commands, asset_server: &Res<AssetServer>, simul:
                 ..default()
             },
             Agent {
-                coords,
                 type_: AgentType::FarMain,
                 speed: 3.,
                 is_travelling: true,
