@@ -1,9 +1,4 @@
 use bevy::prelude::*;
-use bevy_prototype_lyon::draw::Stroke;
-use bevy_prototype_lyon::entity::ShapeBundle;
-use bevy_prototype_lyon::geometry::GeometryBuilder;
-use bevy_prototype_lyon::prelude::RectangleOrigin;
-use bevy_prototype_lyon::shapes;
 
 pub struct Chunking {
     pub entity_count: usize,
@@ -132,18 +127,4 @@ impl ChunkCoordinates {
             y,
         }
     }
-}
-
-fn spawn_debug_square(commands: &mut Commands, x: f32, y: f32, chunk_size: f32) {
-    let shape = shapes::Rectangle {
-        extents: Vec2::new(chunk_size, chunk_size),
-        origin: RectangleOrigin::CustomCenter(Vec2::new(x, y)),
-    };
-    commands.spawn((
-        ShapeBundle {
-            path: GeometryBuilder::build_as(&shape),
-            ..default()
-        },
-        Stroke::new(Color::RED, 1.0),
-    ));
 }

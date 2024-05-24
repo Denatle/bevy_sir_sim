@@ -6,18 +6,17 @@ use bevy_pancam::{PanCam, PanCamPlugin};
 use bevy_prototype_lyon::prelude::*;
 use iyes_perf_ui::prelude::*;
 use rand::prelude::*;
-use crate::plugin::{Chunkable, ChunkableBundle, ChunkCoordinates, Chunking, Simulation};
+
+use chunk_lib::{Chunkable, ChunkableBundle, ChunkCoordinates, Chunking, Simulation};
 
 use crate::types::{Agent, AgentType, CursorAgent};
 
 mod types;
-mod plugin;
 
 const CANVAS_WIDTH: f32 = 1500.;
 const CANVAS_HEIGHT: f32 = 1500.;
 const CHUNK_SIZE: f32 = 100.;
 
-// TODO: MOVE SIMULATION MODULE TO DIFFERENT LIBRARY
 
 fn main() {
     let args: Vec<String> = env::args().collect();
