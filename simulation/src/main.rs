@@ -26,8 +26,8 @@ fn main() {
             DefaultPlugins.set(WindowPlugin {
                 primary_window: Some(Window {
                     present_mode: bevy::window::PresentMode::AutoNoVsync,
-                    mode: WindowMode::Windowed,
-                    title: "Bad Apple!".into(),
+                    mode: WindowMode::BorderlessFullscreen,
+                    title: "Bad Apple!!".into(),
                     resolution: WindowResolution::new(CANVAS_WIDTH, CANVAS_HEIGHT)
                         .with_scale_factor_override(1.),
                     ..default()
@@ -103,9 +103,9 @@ fn change_destination(
         let (n_x, n_y) = simul.get_global_coords(n_chunk);
 
         let r_x = ((random::<f32>() - 0.5) * simul.chunk_w + n_x)
-            .clamp(0. - simul.canvas_w / 2.31, simul.canvas_w / 2.31);
+            .clamp(0. - simul.canvas_w, simul.canvas_w);
         let r_y = ((random::<f32>() - 0.5) * simul.chunk_h + n_y)
-            .clamp(0. - simul.canvas_w / 2.31, simul.canvas_w / 2.31);
+            .clamp(0. - simul.canvas_w, simul.canvas_w);
 
         // println!("{}, {}", x_dev, y_dev);
         let destination = Vec3::new(r_x, r_y, 0.);
