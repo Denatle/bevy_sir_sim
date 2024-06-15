@@ -4,28 +4,26 @@ pub struct Chunking {
     pub entity_count: usize,
     pub canvas_w: f32,
     pub canvas_h: f32,
-    pub chunk_size: f32,
+    pub chunk_w: f32,
+    pub chunk_h: f32,
 }
 
 impl Plugin for Chunking {
     fn build(&self, app: &mut App) {
-        app
-            .insert_resource(Simulation {
-                entity_count: self.entity_count,
-                canvas_w: self.canvas_w,
-                canvas_h: self.canvas_h,
-                chunk_size: self.chunk_size,
-                ..default()
-            })
-            .add_systems(Startup, setup_grid)
-            .add_systems(Update, update_chunkables);
+        app.insert_resource(Simulation {
+            entity_count: self.entity_count,
+            canvas_w: self.canvas_w,
+            canvas_h: self.canvas_h,
+            chunk_w: self.chunk_w,
+            chunk_h: self.chunk_h,
+            ..default()
+        })
+        .add_systems(Startup, setup_grid)
+        .add_systems(Update, update_chunkables);
     }
 }
 
-
-fn setup_grid(
-    mut simul: ResMut<Simulation>,
-) {
+fn setup_grid(mut simul: ResMut<Simulation>) {
     let limits = simul.get_chunk_limits();
     for y in 0..limits.y {
         simul.chunks.push(vec![]);
@@ -45,16 +43,16 @@ fn update_chunkables(
             simul.change_entity_sector(entity, chunkable.coords, coords);
         }
         chunkable.coords = coords;
-    };
+    }
 }
-
 
 #[derive(Resource, Default)]
 pub struct Simulation {
     pub entity_count: usize,
     pub canvas_w: f32,
     pub canvas_h: f32,
-    pub chunk_size: f32,
+    pub chunk_w: f32,
+    pub chunk_h: f32,
     pub chunks: Vec<Vec<Vec<Entity>>>,
 }
 
@@ -62,8 +60,8 @@ impl Simulation {
     pub fn get_chunk_coords(&self, x: f32, y: f32) -> ChunkCoordinates {
         let x = x + self.canvas_w / 2.;
         let y = y + self.canvas_h / 2.;
-        let r_x = (x / self.canvas_w * (self.canvas_w / self.chunk_size)).floor();
-        let r_y = (y / self.canvas_h * (self.canvas_h / self.chunk_size)).floor();
+        let r_x = (x / self.canvas_w * (self.canvas_w / self.chunk_w)).floor();
+        let r_y = (y / self.canvas_h * (self.canvas_h / self.chunk_h)).floor();
         ChunkCoordinates {
             x: (r_x as usize).clamp(0, self.get_chunk_limits().x - 1),
             y: (r_y as usize).clamp(0, self.get_chunk_limits().y - 1),
@@ -72,14 +70,14 @@ impl Simulation {
 
     pub fn get_chunk_limits(&self) -> ChunkCoordinates {
         ChunkCoordinates {
-            x: self.canvas_w as usize / self.chunk_size as usize,
-            y: self.canvas_h as usize / self.chunk_size as usize,
+            x: self.canvas_w as usize / self.chunk_w as usize,
+            y: self.canvas_h as usize / self.chunk_h as usize,
         }
     }
 
     pub fn get_global_coords(&self, coords: ChunkCoordinates) -> (f32, f32) {
-        let x = coords.x as f32 * self.chunk_size - self.canvas_w / 2. + self.chunk_size / 2.;
-        let y = coords.y as f32 * self.chunk_size - self.canvas_h / 2. + self.chunk_size / 2.;
+        let x = coords.x as f32 * self.chunk_w - self.canvas_w / 2. + self.chunk_w / 2.;
+        let y = coords.y as f32 * self.chunk_h - self.canvas_h / 2. + self.chunk_h / 2.;
         (x, y)
     }
 
@@ -89,8 +87,9 @@ impl Simulation {
         old: ChunkCoordinates,
         new: ChunkCoordinates,
     ) {
-        self.chunks[old.y][old.x].iter()
-            .position(|x| { *x == entity })
+        self.chunks[old.y][old.x]
+            .iter()
+            .position(|x| *x == entity)
             .map(|t| self.chunks[old.y][old.x].remove(t));
         self.chunks[new.y][new.x].push(entity);
     }
@@ -122,9 +121,6 @@ pub struct ChunkCoordinates {
 
 impl ChunkCoordinates {
     pub fn new(x: usize, y: usize) -> Self {
-        ChunkCoordinates {
-            x,
-            y,
-        }
+        ChunkCoordinates { x, y }
     }
 }
