@@ -469,6 +469,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "bevy_easings"
+version = "0.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6fceae82d8edb0ab344e0231e35aff21c3da2cf137b73d945faea9e97a8d75c9"
+dependencies = [
+ "bevy",
+ "interpolation",
+]
+
+[[package]]
 name = "bevy_ecs"
 version = "0.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2098,6 +2108,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "interpolation"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e9c13ae9d91148fcb4aab6654c4c2a7d02a15395ea9e23f65170f175f8b269ce"
+
+[[package]]
 name = "io-kit-sys"
 version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3117,6 +3133,7 @@ name = "simulation"
 version = "0.1.0"
 dependencies = [
  "bevy",
+ "bevy_easings",
  "bevy_prototype_lyon",
  "chunk_lib",
  "iyes_perf_ui",

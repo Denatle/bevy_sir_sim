@@ -9,3 +9,4 @@ bevy_prototype_lyon = "0.11.0"
 iyes_perf_ui = "0.2.3"
 rand = "0.9.0-alpha.1"
 chunk_lib = { path = "../chunk_lib" }
+bevy_easings = "0.13.1"

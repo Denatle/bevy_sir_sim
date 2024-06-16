@@ -67,11 +67,14 @@ impl Simulation {
             y: (r_y as usize).clamp(0, self.get_chunk_limits().y - 1),
         }
     }
+    pub fn get_chunk_coords_vec(&self, coords: Vec2) -> ChunkCoordinates {
+        self.get_chunk_coords(coords.x, coords.y)
+    }
 
     pub fn get_chunk_limits(&self) -> ChunkCoordinates {
         ChunkCoordinates {
-            x: self.canvas_w as usize / self.chunk_w as usize,
-            y: self.canvas_h as usize / self.chunk_h as usize,
+            x: (self.canvas_w / self.chunk_w ) as usize,
+            y: (self.canvas_h / self.chunk_h) as usize,
         }
     }
 
