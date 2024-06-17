@@ -1,4 +1,3 @@
-use std::env;
 use std::time::Duration;
 
 use bevy::window::WindowMode;
@@ -14,6 +13,7 @@ use crate::types::Agent;
 
 mod types;
 
+const AGENT_COUNT: usize = 1000;
 const CANVAS_WIDTH: f32 = 1920.;
 const CANVAS_HEIGHT: f32 = 1080.;
 const CHUNK_WIDTH: f32 = 128.;
@@ -22,8 +22,8 @@ const TRAVEL_DURATION: Duration = Duration::from_millis(300);
 const EASING: EaseFunction = EaseFunction::QuarticInOut;
 
 fn main() {
-    let args: Vec<String> = env::args().collect();
-    let entity_count: usize = args[1].parse().expect("Wrong args");
+    // let args: Vec<String> = env::args().collect();
+    // let entity_count: usize = args[1].parse().expect("Wrong args");
 
     App::new()
         .add_plugins(
@@ -40,7 +40,6 @@ fn main() {
             }),
         )
         .add_plugins(Chunking {
-            entity_count,
             canvas_w: CANVAS_WIDTH,
             canvas_h: CANVAS_HEIGHT,
             chunk_w: CHUNK_WIDTH,
@@ -123,8 +122,8 @@ fn setup_debug(
     let limits = simul.get_chunk_limits();
     for y in 0..limits.y {
         for x in 0..limits.x {
-            let (r_x, r_y) = simul.get_global_coords(ChunkCoordinates::new(x, y));
-            spawn_debug_square(&mut commands, r_x, r_y, simul.chunk_w, simul.chunk_h);
+            let coords = simul.get_global_coords(ChunkCoordinates::new(x, y));
+            spawn_debug_square(&mut commands, coords, simul.chunk_w, simul.chunk_h);
         }
     }
     spawn_agents(&mut commands, &asset_server, &mut simul);
@@ -138,25 +137,25 @@ fn change_destination(
 ) {
     for entity in removed.read() {
         let (mut agent, chunkable, transform) = agent_query.get_mut(entity).unwrap();
-        
-        let x_dev = chunkable.coords.x as f32 + ((random::<f32>() - 0.5) * 2.).round();
-        let y_dev = chunkable.coords.y as f32 + ((random::<f32>() - 0.5) * 2.).round();
-        assert!(x_dev < 15.); // TODO: FIX!!!!
 
-        let n_chunk = ChunkCoordinates::new(x_dev as usize, y_dev as usize);
+        let limits = simul.get_chunk_limits();
 
-        let (n_x, n_y) = simul.get_global_coords(n_chunk);
+        let x_dev = ((chunkable.coords.x as f32 + ((random::<f32>() - 0.5) * 2.).round()) as usize)
+            .clamp(0, limits.x - 1);
+        let y_dev = ((chunkable.coords.y as f32 + ((random::<f32>() - 0.5) * 2.).round()) as usize)
+            .clamp(0, limits.y - 1);
 
-        let r_x = ((random::<f32>() - 0.5) * simul.chunk_w + n_x)
-            .clamp(0. - simul.canvas_w, simul.canvas_w / 2.);
-        let r_y = ((random::<f32>() - 0.5) * simul.chunk_h + n_y)
-            .clamp(0. - simul.canvas_h, simul.canvas_h / 2.);
-        // assert!(r_x < simul.canvas_w);
+        let n_chunk = ChunkCoordinates::new(x_dev, y_dev);
+
+        let coords = simul.get_global_coords(n_chunk);
+
+        let r_x = (random::<f32>() - 0.5) * simul.chunk_w + coords.x;
+        let r_y = (random::<f32>() - 0.5) * simul.chunk_h + coords.y;
 
         // println!("{}, {}", x_dev, y_dev);
         let destination = Vec3::new(r_x, r_y, 10.);
         agent.destination = destination;
-        
+
         let mut easing_component = transform.ease_to(
             Transform::from_translation(destination),
             EASING,
@@ -176,45 +175,59 @@ fn spawn_agents(
     asset_server: &Res<AssetServer>,
     simul: &mut ResMut<Simulation>,
 ) {
-    let coords = simul.get_chunk_coords(0., 0.);
-    for _ in 0..simul.entity_count {
-        let x: f32 = (random::<f32>() - 0.5) * (simul.canvas_w / 2.);
-        let y: f32 = (random::<f32>() - 0.5) * (simul.canvas_h / 2.);
-        let destination = Vec3::new(x, y, 0.);
-        let entity = commands
-            .spawn((
-                ChunkableBundle {
-                    chunkable: Chunkable { coords },
-                },
-                SpriteBundle {
-                    texture: asset_server.load("sprite.png"),
-                    ..default()
-                },
-                Transform {
-                    translation: Vec3 {
-                        z: 10.,
-                        ..default()
-                    },
-                    ..default()
-                }
-                .ease_to(
-                    Transform::from_translation(Vec3::new(destination.x, destination.y, 10.)),
-                    EASING,
-                    EasingType::Once {
-                        duration: TRAVEL_DURATION,
-                    },
-                ),
-                Agent { destination },
-            ))
-            .id();
-        simul.add_entity(coords, entity);
+    let limits = simul.get_chunk_limits();
+    let chunk_entity_count = AGENT_COUNT / limits.x / limits.y;
+    for y in 0..limits.y {
+        for x in 0..limits.x {
+            let chunk_coords = ChunkCoordinates::new(x, y);
+            let coords = simul.get_global_coords(ChunkCoordinates::new(x, y));
+            for _ in 0..chunk_entity_count {
+                let r_x = (random::<f32>() - 0.5) * simul.chunk_w + coords.x;
+                let r_y = (random::<f32>() - 0.5) * simul.chunk_h + coords.y;
+                let destination = Vec3::new(r_x, r_y, 10.);
+                let entity = commands
+                    .spawn((
+                        ChunkableBundle {
+                            chunkable: Chunkable {
+                                coords: chunk_coords,
+                            },
+                        },
+                        SpriteBundle {
+                            texture: asset_server.load("sprite.png"),
+                            ..default()
+                        },
+                        Transform {
+                            translation: Vec3 {
+                                x: r_x,
+                                y: r_y,
+                                z: 10.,
+                            },
+                            ..default()
+                        }
+                        .ease_to(
+                            Transform::from_translation(Vec3::new(
+                                destination.x,
+                                destination.y,
+                                10.,
+                            )),
+                            EASING,
+                            EasingType::Once {
+                                duration: TRAVEL_DURATION,
+                            },
+                        ),
+                        Agent { destination },
+                    ))
+                    .id();
+                simul.add_entity(chunk_coords, entity);
+            }
+        }
     }
 }
 
-fn spawn_debug_square(commands: &mut Commands, x: f32, y: f32, chunk_w: f32, chunk_h: f32) {
+fn spawn_debug_square(commands: &mut Commands, coords: Vec2, chunk_w: f32, chunk_h: f32) {
     let shape = shapes::Rectangle {
         extents: Vec2::new(chunk_w, chunk_h),
-        origin: RectangleOrigin::CustomCenter(Vec2::new(x, y)),
+        origin: RectangleOrigin::CustomCenter(coords),
     };
     commands.spawn((
         ShapeBundle {

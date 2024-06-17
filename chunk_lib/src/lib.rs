@@ -1,7 +1,6 @@
 use bevy::prelude::*;
 
 pub struct Chunking {
-    pub entity_count: usize,
     pub canvas_w: f32,
     pub canvas_h: f32,
     pub chunk_w: f32,
@@ -11,7 +10,6 @@ pub struct Chunking {
 impl Plugin for Chunking {
     fn build(&self, app: &mut App) {
         app.insert_resource(Simulation {
-            entity_count: self.entity_count,
             canvas_w: self.canvas_w,
             canvas_h: self.canvas_h,
             chunk_w: self.chunk_w,
@@ -48,7 +46,6 @@ fn update_chunkables(
 
 #[derive(Resource, Default)]
 pub struct Simulation {
-    pub entity_count: usize,
     pub canvas_w: f32,
     pub canvas_h: f32,
     pub chunk_w: f32,
@@ -73,15 +70,15 @@ impl Simulation {
 
     pub fn get_chunk_limits(&self) -> ChunkCoordinates {
         ChunkCoordinates {
-            x: (self.canvas_w / self.chunk_w ) as usize,
+            x: (self.canvas_w / self.chunk_w) as usize,
             y: (self.canvas_h / self.chunk_h) as usize,
         }
     }
 
-    pub fn get_global_coords(&self, coords: ChunkCoordinates) -> (f32, f32) {
+    pub fn get_global_coords(&self, coords: ChunkCoordinates) -> Vec2 {
         let x = coords.x as f32 * self.chunk_w - self.canvas_w / 2. + self.chunk_w / 2.;
         let y = coords.y as f32 * self.chunk_h - self.canvas_h / 2. + self.chunk_h / 2.;
-        (x, y)
+        Vec2::new(x, y)
     }
 
     pub fn change_entity_sector(
